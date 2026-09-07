@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Interactive Product Viewer — AETumi</title>
+<!--
+  Interactive product viewer / configurator:
+   - OrbitControls to spin, zoom, and pan (mouse + touch)
+   - a multi-part "product" (a torus-knot core with three shell rings)
+   - HTML hotspot markers anchored to 3D points, re-projected every frame
+     so they track the model as it rotates
+   - an "exploded view" toggle that offsets each sub-part along its own axis
+
+  Swap the stand-in geometry for a GLTFLoader model in production.
+  Three.js r160 (ES modules: three from cdnjs, addons from jsdelivr).
+-->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #101319;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eef1f8; }
+  #viewer { position: fixed; inset: 0; touch-action: none; }
+  canvas { display: block; }
+
+  /* Hotspots are absolutely-positioned HTML, moved via transform each frame. */
+  .hotspot {
+    position: absolute; transform: translate(-50%, -50%);
+    width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(124,139,255,.9); border: 2px solid #fff;
+    display: grid; place-items: center; font-size: 13px; font-weight: 700;
+    cursor: pointer; pointer-events: auto; transition: opacity .2s;
+    box-shadow: 0 0 0 6px rgba(124,139,255,.18);
+  }
+  .hotspot .label {
+    position: absolute; left: 34px; white-space: nowrap;
+    background: rgba(16,19,25,.92); border: 1px solid rgba(255,255,255,.14);
+    padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500;
+    opacity: 0; transform: translateX(-6px); transition: opacity .18s, transform .18s;
+    pointer-events: none;
+  }
+  .hotspot:hover .label { opacity: 1; transform: translateX(0); }
+  .toolbar {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.14); padding: 8px; border-radius: 999px;
+    backdrop-filter: blur(8px);
+  }
+  .toolbar button {
+    appearance: none; cursor: pointer; color: #eef1f8; background: transparent;
+    border: 0; padding: 8px 16px; border-radius: 999px; font-size: 0.9rem;
+  }
+  .toolbar button[aria-pressed="true"] { background: #7c8bff; color: #0b0d12; }
+  .hint { position: fixed; bottom: 18px; width: 100%; text-align: center;
+    color: #8892b4; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div class="toolbar">
+    <button id="explode" aria-pressed="false">Exploded view</button>
+    <button id="reset">Reset camera</button>
+  </div>
+  <div class="hint">Drag to orbit &middot; scroll / pinch to zoom &middot; hover a dot for detail</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const mount = document.getElementById('viewer');
+
+    // ---- Renderer / scene / camera -----------------------------------------
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    mount.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101319);
+    scene.fog = new THREE.Fog(0x101319, 9, 18);
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+    const START = new THREE.Vector3(3.4, 2.2, 4.6);
+    camera.position.copy(START);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 3;
+    controls.maxDistance = 12;
+    controls.target.set(0, 0, 0);
+
+    // ---- Lights -------------------------------------------------------------
+    scene.add(new THREE.HemisphereLight(0xbfd0ff, 0x1a1d28, 1.1));
+    const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(5, 6, 4);
+    scene.add(key);
+
+    // ---- The multi-part product --------------------------------------------
+    // Each part records a `dir` = the direction it flies out to when exploded.
+    const product = new THREE.Group();
+    scene.add(product);
+
+    function part(mesh, dir) {
+      mesh.userData.home = mesh.position.clone();
+      mesh.userData.dir = dir;
+      product.add(mesh);
+      return mesh;
+    }
+
+    const core = part(new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.7, 0.24, 200, 32),
+      new THREE.MeshStandardMaterial({ color: 0x7c8bff, roughness: 0.3, metalness: 0.6 })
+    ), new THREE.Vector3(0, 0, 0));
+
+    const shellMat = () => new THREE.MeshStandardMaterial({
+      color: 0xff5ea8, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.85
+    });
+    part(new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.05, 16, 90), shellMat()),
+         new THREE.Vector3(0, 1.6, 0)).rotation.x = Math.PI / 2;
+    part(new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.05, 16, 90), shellMat()),
+         new THREE.Vector3(1.6, 0, 0)).rotation.y = Math.PI / 2;
+    part(new THREE.Mesh(new THREE.TorusGeometry(1.65, 0.05, 16, 90), shellMat()),
+         new THREE.Vector3(0, 0, 1.6));
+
+    // ---- Hotspots: 3D anchor points + their HTML markers -------------------
+    const HOTSPOTS = [
+      { pos: new THREE.Vector3(0.0, 0.75, 0.0), label: 'Precision core' },
+      { pos: new THREE.Vector3(1.25, 0.0, 0.0), label: 'Outer housing' },
+      { pos: new THREE.Vector3(0.0, 0.0, 1.65), label: 'Shielding ring' }
+    ];
+    const tmp = new THREE.Vector3();
+    HOTSPOTS.forEach((h, i) => {
+      const el = document.createElement('div');
+      el.className = 'hotspot';
+      el.innerHTML = `${i + 1}<span class="label">${h.label}</span>`;
+      mount.appendChild(el);
+      h.el = el;
+    });
+
+    function updateHotspots() {
+      for (const h of HOTSPOTS) {
+        tmp.copy(h.pos).project(camera);           // world -> normalized device coords
+        const behind = tmp.z > 1;                   // behind the camera / clipped
+        const x = (tmp.x * 0.5 + 0.5) * innerWidth;
+        const y = (-tmp.y * 0.5 + 0.5) * innerHeight;
+        h.el.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px)`;
+        h.el.style.opacity = behind ? '0' : '1';
+      }
+    }
+
+    // ---- Exploded-view toggle (animated offset factor 0..1) ----------------
+    let explode = 0, explodeTarget = 0;
+    document.getElementById('explode').addEventListener('click', (e) => {
+      const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+      e.currentTarget.setAttribute('aria-pressed', String(on));
+      explodeTarget = on ? 1 : 0;
+    });
+    document.getElementById('reset').addEventListener('click', () => {
+      camera.position.copy(START);
+      controls.target.set(0, 0, 0);
+    });
+
+    // ---- Loop ---------------------------------------------------------------
+    const clock = new THREE.Clock();
+    function render() {
+      const t = clock.getElapsedTime();
+      explode += (explodeTarget - explode) * 0.12;
+      product.children.forEach((m) => {
+        m.position.copy(m.userData.home).addScaledVector(m.userData.dir, explode);
+      });
+      if (!reduceMotion) product.rotation.y = t * 0.15;
+      controls.update();
+      renderer.render(scene, camera);
+      updateHotspots();
+    }
+    if (reduceMotion) {
+      controls.addEventListener('change', render); // redraw only on interaction
+      render();
+    } else {
+      renderer.setAnimationLoop(render);
+    }
+
+    // ---- Resize -------------------------------------------------------------
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      render();
+    });
+  </script>
+</body>
+</html>
