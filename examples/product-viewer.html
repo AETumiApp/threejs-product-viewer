@@ -184,12 +184,13 @@
            new THREE.Vector3(0, 0, 1.6));
 
       /* ---- Hotspots (keyboard-focusable) ------------------------------ */
+      // Each `local` is a point in the PRODUCT group's local space — anchored to
+      // the surface, so it travels with the model as `product` rotates.
       const HOTSPOTS = [
-        { pos: new THREE.Vector3(0.0, 0.75, 0.0), label: 'Precision core' },
-        { pos: new THREE.Vector3(1.25, 0.0, 0.0), label: 'Outer housing' },
-        { pos: new THREE.Vector3(0.0, 0.0, 1.65), label: 'Shielding ring' }
+        { local: new THREE.Vector3(0.0, 0.75, 0.0), label: 'Precision core' },
+        { local: new THREE.Vector3(1.25, 0.0, 0.0), label: 'Outer housing' },
+        { local: new THREE.Vector3(0.0, 0.0, 1.65), label: 'Shielding ring' }
       ];
-      const tmp = new THREE.Vector3();
       HOTSPOTS.forEach((h, i) => {
         const el = document.createElement('button');
         el.className = 'hotspot';
@@ -199,15 +200,48 @@
         mount.appendChild(el);
         h.el = el;
       });
+
+      // Reusable scratch objects (avoid per-frame allocation).
+      const tmp = new THREE.Vector3();       // NDC projection
+      const worldPos = new THREE.Vector3();  // hotspot anchor in world space
+      const rayDir = new THREE.Vector3();
+      const raycaster = new THREE.Raycaster();
+      // Tolerance so the very surface a hotspot sits on doesn't occlude itself.
+      const OCCLUSION_EPS = 0.14;
+
       function updateHotspots() {
+        // Make sure the product's (and its children's) world matrices are current
+        // before we read them for tracking + occlusion.
+        product.updateWorldMatrix(true, true);
         for (const h of HOTSPOTS) {
-          tmp.copy(h.pos).project(camera);
-          const behind = tmp.z > 1;
+          // 1) World-matrix tracking: local anchor -> world -> screen.
+          worldPos.copy(h.local);
+          product.localToWorld(worldPos);          // uses product.matrixWorld
+          tmp.copy(worldPos).project(camera);
+
           const x = (tmp.x * 0.5 + 0.5) * innerWidth;
           const y = (-tmp.y * 0.5 + 0.5) * innerHeight;
           h.el.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px)`;
-          h.el.style.opacity = behind ? '0' : '1';
-          h.el.style.pointerEvents = behind ? 'none' : 'auto';
+
+          // Off-screen (behind camera or outside the NDC box) — nothing to show.
+          let hidden = tmp.z > 1 || tmp.x < -1 || tmp.x > 1 || tmp.y < -1 || tmp.y > 1;
+
+          // 2) Genuine occlusion: only pay for a raycast when the marker is
+          // otherwise visible. Cast from the camera toward the hotspot; if the
+          // first surface hit is meaningfully nearer than the hotspot itself,
+          // the mesh is in front of it — so hide the marker.
+          if (!hidden) {
+            const distToSpot = camera.position.distanceTo(worldPos);
+            rayDir.copy(worldPos).sub(camera.position).normalize();
+            raycaster.set(camera.position, rayDir);
+            raycaster.near = 0;
+            raycaster.far = distToSpot + 1;
+            const hits = raycaster.intersectObjects(product.children, false);
+            if (hits.length && hits[0].distance < distToSpot - OCCLUSION_EPS) hidden = true;
+          }
+
+          h.el.style.opacity = hidden ? '0' : '1';
+          h.el.style.pointerEvents = hidden ? 'none' : 'auto';
         }
       }
 
