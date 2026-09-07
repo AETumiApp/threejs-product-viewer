@@ -1,3 +1,19 @@
+# threejs-product-viewer — Examples
+
+An interactive Three.js (r160) product viewer / configurator. No build step: open the `.html` file in a modern browser and it runs.
+
+| Example | Description |
+| --- | --- |
+| [`product-viewer.html`](./product-viewer.html) | An orbit-controllable product viewer with HTML hotspot markers projected onto 3D anchor points (they track the model each frame) and an animated "exploded view" toggle that offsets each sub-part. Mouse + touch friendly. |
+
+Loads Three.js + `OrbitControls` as ES modules through an importmap (`three` from cdnjs, addons from jsdelivr). Respects `prefers-reduced-motion` (renders on interaction only) and handles resize.
+
+Explore more on the hub: **https://aetumi.app** · product viewers → https://aetumi.app/aesport
+
+---
+
+## Example backlog / roadmap
+
 # Three.js Product Viewer Example Backlog
 
 ## Planned examples
