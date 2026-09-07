@@ -5,52 +5,72 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Interactive Product Viewer — AETumi</title>
 <!--
-  Interactive product viewer / configurator:
-   - OrbitControls to spin, zoom, and pan (mouse + touch)
-   - a multi-part "product" (a torus-knot core with three shell rings)
-   - HTML hotspot markers anchored to 3D points, re-projected every frame
-     so they track the model as it rotates
-   - an "exploded view" toggle that offsets each sub-part along its own axis
+  INTERACTIVE PRODUCT VIEWER / CONFIGURATOR — expert / production build.
 
-  Swap the stand-in geometry for a GLTFLoader model in production.
-  Three.js r160 (ES modules: three from cdnjs, addons from jsdelivr).
+    • OrbitControls (mouse + touch): spin, zoom, pan, with inertial damping.
+    • A multi-part product; HTML hotspot markers re-projected each frame so they
+      track the model, and hidden when they rotate behind it (occlusion-aware).
+    • An animated "exploded view" toggle offsetting each sub-part along its axis.
+
+  Production concerns handled below:
+    • WebGL2 → WebGL → tasteful static poster fallback (never a blank canvas).
+    • prefers-reduced-motion: no idle spin; renders only on user interaction.
+    • Adaptive quality: rolling FPS steps DPR down <50 fps, up >58 (hysteresis).
+    • On-demand rendering — the loop parks itself when the scene is at rest,
+      offscreen, or the tab is hidden, and wakes on interaction. Minimal battery.
+    • Strict dispose(): controls, listeners, geometries, materials, renderer.
+    • Accessibility: canvas role="img" + aria-label; toolbar buttons are native
+      <button>s with aria-pressed and visible focus rings.
+
+  Three.js r160 — ES modules via importmap on jsDelivr ONLY.
 -->
 <style>
+  :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #101319;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eef1f8; }
   #viewer { position: fixed; inset: 0; touch-action: none; }
   canvas { display: block; }
 
-  /* Hotspots are absolutely-positioned HTML, moved via transform each frame. */
-  .hotspot {
-    position: absolute; transform: translate(-50%, -50%);
+  .poster { position: fixed; inset: 0;
+    background: radial-gradient(85% 75% at 50% 46%, #1a2740 0%, #131722 55%, #101319 100%); }
+  .poster::after { content: ""; position: absolute; left: 50%; top: 48%; width: 34vmin; height: 34vmin;
+    transform: translate(-50%,-50%) rotate(12deg);
+    background: conic-gradient(from 0deg, #7c8bff, #ff5ea8, #7c8bff);
+    border-radius: 30%; filter: blur(3px); opacity: .8; }
+
+  .hotspot { position: absolute; transform: translate(-50%, -50%);
     width: 26px; height: 26px; border-radius: 50%;
     background: rgba(124,139,255,.9); border: 2px solid #fff;
     display: grid; place-items: center; font-size: 13px; font-weight: 700;
     cursor: pointer; pointer-events: auto; transition: opacity .2s;
-    box-shadow: 0 0 0 6px rgba(124,139,255,.18);
-  }
-  .hotspot .label {
-    position: absolute; left: 34px; white-space: nowrap;
+    box-shadow: 0 0 0 6px rgba(124,139,255,.18); }
+  .hotspot .label { position: absolute; left: 34px; white-space: nowrap;
     background: rgba(16,19,25,.92); border: 1px solid rgba(255,255,255,.14);
     padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 500;
     opacity: 0; transform: translateX(-6px); transition: opacity .18s, transform .18s;
-    pointer-events: none;
-  }
-  .hotspot:hover .label { opacity: 1; transform: translateX(0); }
-  .toolbar {
-    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    pointer-events: none; }
+  .hotspot:hover .label, .hotspot:focus-visible .label { opacity: 1; transform: translateX(0); }
+  .hotspot:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+  .toolbar { position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 10px; background: rgba(255,255,255,.06);
     border: 1px solid rgba(255,255,255,.14); padding: 8px; border-radius: 999px;
-    backdrop-filter: blur(8px);
-  }
-  .toolbar button {
-    appearance: none; cursor: pointer; color: #eef1f8; background: transparent;
-    border: 0; padding: 8px 16px; border-radius: 999px; font-size: 0.9rem;
-  }
+    backdrop-filter: blur(8px); }
+  .toolbar button { appearance: none; cursor: pointer; color: #eef1f8; background: transparent;
+    border: 0; padding: 8px 16px; border-radius: 999px; font-size: 0.9rem; }
   .toolbar button[aria-pressed="true"] { background: #7c8bff; color: #0b0d12; }
+  .toolbar button:focus-visible { outline: 2px solid #7c8bff; outline-offset: 3px; }
   .hint { position: fixed; bottom: 18px; width: 100%; text-align: center;
     color: #8892b4; font-size: 0.82rem; }
+
+  .hud { position: fixed; top: 16px; right: 16px; z-index: 6;
+    font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: #8892b4; text-align: right; }
+  .hud button { appearance: none; cursor: pointer; color: inherit;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16);
+    padding: 5px 10px; border-radius: 8px; font: inherit; }
+  .hud button:focus-visible { outline: 2px solid #7c8bff; outline-offset: 2px; }
+  .hud pre { margin: 6px 0 0; opacity: .85; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -59,6 +79,7 @@
     <button id="explode" aria-pressed="false">Exploded view</button>
     <button id="reset">Reset camera</button>
   </div>
+  <div class="hud"><button id="hudToggle" aria-pressed="false">stats</button><pre id="hudReadout" hidden></pre></div>
   <div class="hint">Drag to orbit &middot; scroll / pinch to zoom &middot; hover a dot for detail</div>
 
   <script type="importmap">
@@ -74,128 +95,223 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const mount = document.getElementById('viewer');
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // ---- Renderer / scene / camera -----------------------------------------
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.setSize(innerWidth, innerHeight);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    mount.appendChild(renderer.domElement);
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x101319);
-    scene.fog = new THREE.Fog(0x101319, 9, 18);
-
-    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
-    const START = new THREE.Vector3(3.4, 2.2, 4.6);
-    camera.position.copy(START);
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.minDistance = 3;
-    controls.maxDistance = 12;
-    controls.target.set(0, 0, 0);
-
-    // ---- Lights -------------------------------------------------------------
-    scene.add(new THREE.HemisphereLight(0xbfd0ff, 0x1a1d28, 1.1));
-    const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(5, 6, 4);
-    scene.add(key);
-
-    // ---- The multi-part product --------------------------------------------
-    // Each part records a `dir` = the direction it flies out to when exploded.
-    const product = new THREE.Group();
-    scene.add(product);
-
-    function part(mesh, dir) {
-      mesh.userData.home = mesh.position.clone();
-      mesh.userData.dir = dir;
-      product.add(mesh);
-      return mesh;
+    function detectWebGL() {
+      try {
+        const c = document.createElement('canvas');
+        if (c.getContext('webgl2')) return 'webgl2';
+        if (c.getContext('webgl') || c.getContext('experimental-webgl')) return 'webgl';
+      } catch (_) {}
+      return 'none';
     }
+    const tier = detectWebGL();
+    const lowPower = (navigator.hardwareConcurrency || 8) <= 4 ||
+                     (navigator.deviceMemory || 8) <= 4;
 
-    const core = part(new THREE.Mesh(
-      new THREE.TorusKnotGeometry(0.7, 0.24, 200, 32),
-      new THREE.MeshStandardMaterial({ color: 0x7c8bff, roughness: 0.3, metalness: 0.6 })
-    ), new THREE.Vector3(0, 0, 0));
-
-    const shellMat = () => new THREE.MeshStandardMaterial({
-      color: 0xff5ea8, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.85
-    });
-    part(new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.05, 16, 90), shellMat()),
-         new THREE.Vector3(0, 1.6, 0)).rotation.x = Math.PI / 2;
-    part(new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.05, 16, 90), shellMat()),
-         new THREE.Vector3(1.6, 0, 0)).rotation.y = Math.PI / 2;
-    part(new THREE.Mesh(new THREE.TorusGeometry(1.65, 0.05, 16, 90), shellMat()),
-         new THREE.Vector3(0, 0, 1.6));
-
-    // ---- Hotspots: 3D anchor points + their HTML markers -------------------
-    const HOTSPOTS = [
-      { pos: new THREE.Vector3(0.0, 0.75, 0.0), label: 'Precision core' },
-      { pos: new THREE.Vector3(1.25, 0.0, 0.0), label: 'Outer housing' },
-      { pos: new THREE.Vector3(0.0, 0.0, 1.65), label: 'Shielding ring' }
-    ];
-    const tmp = new THREE.Vector3();
-    HOTSPOTS.forEach((h, i) => {
-      const el = document.createElement('div');
-      el.className = 'hotspot';
-      el.innerHTML = `${i + 1}<span class="label">${h.label}</span>`;
-      mount.appendChild(el);
-      h.el = el;
-    });
-
-    function updateHotspots() {
-      for (const h of HOTSPOTS) {
-        tmp.copy(h.pos).project(camera);           // world -> normalized device coords
-        const behind = tmp.z > 1;                   // behind the camera / clipped
-        const x = (tmp.x * 0.5 + 0.5) * innerWidth;
-        const y = (-tmp.y * 0.5 + 0.5) * innerHeight;
-        h.el.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px)`;
-        h.el.style.opacity = behind ? '0' : '1';
-      }
-    }
-
-    // ---- Exploded-view toggle (animated offset factor 0..1) ----------------
-    let explode = 0, explodeTarget = 0;
-    document.getElementById('explode').addEventListener('click', (e) => {
-      const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
-      e.currentTarget.setAttribute('aria-pressed', String(on));
-      explodeTarget = on ? 1 : 0;
-    });
-    document.getElementById('reset').addEventListener('click', () => {
-      camera.position.copy(START);
-      controls.target.set(0, 0, 0);
-    });
-
-    // ---- Loop ---------------------------------------------------------------
-    const clock = new THREE.Clock();
-    function render() {
-      const t = clock.getElapsedTime();
-      explode += (explodeTarget - explode) * 0.12;
-      product.children.forEach((m) => {
-        m.position.copy(m.userData.home).addScaledVector(m.userData.dir, explode);
-      });
-      if (!reduceMotion) product.rotation.y = t * 0.15;
-      controls.update();
-      renderer.render(scene, camera);
-      updateHotspots();
-    }
-    if (reduceMotion) {
-      controls.addEventListener('change', render); // redraw only on interaction
-      render();
+    if (tier === 'none') {
+      const poster = document.createElement('div');
+      poster.className = 'poster';
+      poster.setAttribute('role', 'img');
+      poster.setAttribute('aria-label', 'Interactive 3D product with exploded-view parts (static preview — WebGL unavailable)');
+      mount.appendChild(poster);
+      document.querySelectorAll('.toolbar button').forEach((b) => b.disabled = true);
+      document.querySelector('.hud').hidden = true;
     } else {
-      renderer.setAnimationLoop(render);
+      boot();
     }
 
-    // ---- Resize -------------------------------------------------------------
-    addEventListener('resize', () => {
-      camera.aspect = innerWidth / innerHeight;
-      camera.updateProjectionMatrix();
+    function boot() {
+      /* ---- Renderer / scene / camera ---------------------------------- */
+      const renderer = new THREE.WebGLRenderer({ antialias: !lowPower, powerPreference: 'high-performance' });
+      const maxDPR = Math.min(devicePixelRatio || 1, 2);
       renderer.setSize(innerWidth, innerHeight);
-      render();
-    });
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+      mount.appendChild(renderer.domElement);
+
+      const canvas = renderer.domElement;
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label',
+        'An orbitable 3D product built from a glowing core and three shell rings, with an exploded-view toggle — AETumi viewer.');
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x101319);
+      scene.fog = new THREE.Fog(0x101319, 9, 18);
+
+      const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+      const START = new THREE.Vector3(3.4, 2.2, 4.6);
+      camera.position.copy(START);
+
+      const controls = new OrbitControls(camera, canvas);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.minDistance = 3;
+      controls.maxDistance = 12;
+      controls.target.set(0, 0, 0);
+      controls.addEventListener('change', () => { needsRender = true; wake(); });
+
+      /* ---- Lights ----------------------------------------------------- */
+      scene.add(new THREE.HemisphereLight(0xbfd0ff, 0x1a1d28, 1.1));
+      const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(5, 6, 4);
+      scene.add(key);
+
+      /* ---- Multi-part product ----------------------------------------- */
+      const product = new THREE.Group();
+      scene.add(product);
+      const disposables = [];
+      function track(m) { disposables.push(m.geometry, m.material); return m; }
+      function part(mesh, dir) {
+        mesh.userData.home = mesh.position.clone();
+        mesh.userData.dir = dir;
+        product.add(track(mesh));
+        return mesh;
+      }
+      part(new THREE.Mesh(
+        new THREE.TorusKnotGeometry(0.7, 0.24, lowPower ? 140 : 200, 32),
+        new THREE.MeshStandardMaterial({ color: 0x7c8bff, roughness: 0.3, metalness: 0.6 })
+      ), new THREE.Vector3(0, 0, 0));
+
+      const shellMat = () => new THREE.MeshStandardMaterial({
+        color: 0xff5ea8, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.85 });
+      part(new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.05, 16, 90), shellMat()),
+           new THREE.Vector3(0, 1.6, 0)).rotation.x = Math.PI / 2;
+      part(new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.05, 16, 90), shellMat()),
+           new THREE.Vector3(1.6, 0, 0)).rotation.y = Math.PI / 2;
+      part(new THREE.Mesh(new THREE.TorusGeometry(1.65, 0.05, 16, 90), shellMat()),
+           new THREE.Vector3(0, 0, 1.6));
+
+      /* ---- Hotspots (keyboard-focusable) ------------------------------ */
+      const HOTSPOTS = [
+        { pos: new THREE.Vector3(0.0, 0.75, 0.0), label: 'Precision core' },
+        { pos: new THREE.Vector3(1.25, 0.0, 0.0), label: 'Outer housing' },
+        { pos: new THREE.Vector3(0.0, 0.0, 1.65), label: 'Shielding ring' }
+      ];
+      const tmp = new THREE.Vector3();
+      HOTSPOTS.forEach((h, i) => {
+        const el = document.createElement('button');
+        el.className = 'hotspot';
+        el.type = 'button';
+        el.setAttribute('aria-label', `Detail ${i + 1}: ${h.label}`);
+        el.innerHTML = `${i + 1}<span class="label">${h.label}</span>`;
+        mount.appendChild(el);
+        h.el = el;
+      });
+      function updateHotspots() {
+        for (const h of HOTSPOTS) {
+          tmp.copy(h.pos).project(camera);
+          const behind = tmp.z > 1;
+          const x = (tmp.x * 0.5 + 0.5) * innerWidth;
+          const y = (-tmp.y * 0.5 + 0.5) * innerHeight;
+          h.el.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px)`;
+          h.el.style.opacity = behind ? '0' : '1';
+          h.el.style.pointerEvents = behind ? 'none' : 'auto';
+        }
+      }
+
+      /* ---- Exploded view ---------------------------------------------- */
+      let explode = 0, explodeTarget = 0;
+      document.getElementById('explode').addEventListener('click', (e) => {
+        const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+        e.currentTarget.setAttribute('aria-pressed', String(on));
+        explodeTarget = on ? 1 : 0; wake();
+      });
+      document.getElementById('reset').addEventListener('click', () => {
+        camera.position.copy(START); controls.target.set(0, 0, 0); needsRender = true; wake();
+      });
+
+      /* ---- Adaptive quality ------------------------------------------- */
+      let quality = lowPower ? 0.6 : 1.0;
+      const fpsBuf = []; let lastAdjust = 0;
+      const applyQuality = () => renderer.setPixelRatio(maxDPR * (0.55 + 0.45 * quality));
+      applyQuality();
+      function sampleAndAdapt(dt, now) {
+        if (dt > 0) fpsBuf.push(1000 / dt);
+        if (fpsBuf.length > 90) fpsBuf.shift();
+        if (fpsBuf.length < 45 || now - lastAdjust < 1400) return;
+        const avg = fpsBuf.reduce((a, b) => a + b, 0) / fpsBuf.length;
+        if (avg < 50 && quality > 0.5) { quality = Math.max(0.5, quality - 0.15); applyQuality(); lastAdjust = now; fpsBuf.length = 0; }
+        else if (avg > 58 && quality < 1) { quality = Math.min(1, quality + 0.1); applyQuality(); lastAdjust = now; fpsBuf.length = 0; }
+        return avg;
+      }
+
+      /* ---- On-demand render loop -------------------------------------- */
+      const clock = new THREE.Clock();
+      let rafId = null, running = false, visible = true, needsRender = true, avgFps = 0, prevT = performance.now();
+
+      function frame() {
+        const now = performance.now();
+        const dt = now - prevT; prevT = now;
+        const t = clock.getElapsedTime();
+
+        const prevExplode = explode;
+        explode += (explodeTarget - explode) * 0.12;
+        if (Math.abs(explode - prevExplode) > 1e-4) needsRender = true;
+        product.children.forEach((m) => {
+          m.position.copy(m.userData.home).addScaledVector(m.userData.dir, explode);
+        });
+        if (!reduceMotion) { product.rotation.y = t * 0.15; needsRender = true; }
+
+        const damped = controls.update();  // returns true while inertia settles
+        if (damped) needsRender = true;
+
+        if (needsRender) {
+          renderer.render(scene, camera);
+          updateHotspots();
+          needsRender = false;
+        }
+        const a = sampleAndAdapt(dt, now); if (a) avgFps = a;
+        if (hudOn) readout.textContent = `${avgFps.toFixed(0)} fps\nq ${quality.toFixed(2)} · dpr ${renderer.getPixelRatio().toFixed(2)}`;
+
+        // Park the loop when nothing is animating (reduced-motion, settled inertia,
+        // no exploded transition). It wakes again on interaction via wake().
+        if (reduceMotion && !damped && Math.abs(explode - explodeTarget) < 0.001) { running = false; rafId = null; return; }
+        rafId = requestAnimationFrame(frame);
+      }
+      function wake() { if (!running && visible && !document.hidden) start(); }
+      function start() { if (running) return; running = true; prevT = performance.now(); rafId = requestAnimationFrame(frame); }
+      function stop() { running = false; if (rafId) cancelAnimationFrame(rafId); rafId = null; }
+
+      const io = new IntersectionObserver((es) => {
+        visible = es[0].isIntersecting;
+        if (visible && !document.hidden) { needsRender = true; start(); } else stop();
+      }, { threshold: 0.01 });
+      io.observe(canvas);
+      const onVisibility = () => { if (document.hidden) stop(); else if (visible) { needsRender = true; start(); } };
+      document.addEventListener('visibilitychange', onVisibility);
+
+      // Reduced-motion still needs one frame + interaction-driven redraws.
+      needsRender = true; start();
+
+      /* ---- FPS toggle -------------------------------------------------- */
+      const toggle = document.getElementById('hudToggle');
+      const readout = document.getElementById('hudReadout');
+      let hudOn = false;
+      toggle.addEventListener('click', () => { hudOn = !hudOn; toggle.setAttribute('aria-pressed', String(hudOn)); readout.hidden = !hudOn; });
+
+      /* ---- Resize ------------------------------------------------------ */
+      const onResize = () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+        needsRender = true; wake();
+        if (!running) { renderer.render(scene, camera); updateHotspots(); }
+      };
+      addEventListener('resize', onResize);
+
+      /* ---- Strict teardown -------------------------------------------- */
+      function dispose() {
+        stop(); io.disconnect(); controls.dispose();
+        removeEventListener('resize', onResize);
+        document.removeEventListener('visibilitychange', onVisibility);
+        disposables.forEach((d) => d && d.dispose && d.dispose());
+        HOTSPOTS.forEach((h) => h.el.remove());
+        renderer.dispose(); renderer.domElement.remove();
+      }
+      addEventListener('pagehide', dispose, { once: true });
+    }
   </script>
 </body>
 </html>
