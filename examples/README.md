@@ -1,56 +1,19 @@
 # threejs-product-viewer — Examples
 
-An interactive Three.js (r160) product viewer / configurator. No build step: open the `.html` file in a modern browser and it runs.
+An interactive, **production-grade** Three.js (r160) product viewer / configurator. No build step: open the `.html` file in a modern browser and it runs.
 
 | Example | Description |
 | --- | --- |
-| [`product-viewer.html`](./product-viewer.html) | An orbit-controllable product viewer with HTML hotspot markers projected onto 3D anchor points (they track the model each frame) and an animated "exploded view" toggle that offsets each sub-part. Mouse + touch friendly. |
+| [`product-viewer.html`](./product-viewer.html) | An orbit-controllable product viewer with occlusion-aware HTML hotspot markers projected onto 3D anchor points (they track the model each frame and hide when they rotate behind it) and an animated "exploded view" toggle. Mouse + touch friendly. |
 
-Loads Three.js + `OrbitControls` as ES modules through an importmap (`three` from cdnjs, addons from jsdelivr). Respects `prefers-reduced-motion` (renders on interaction only) and handles resize.
+### Expert / production features (every example)
+
+- **Capability detection + graceful fallback** — probes WebGL2 → WebGL → none. With no WebGL context it paints a tasteful CSS gradient poster instead of a blank canvas; low-power devices start at reduced quality.
+- **On-demand + adaptive performance** — DPR capped at 2; the loop renders only when something changes (orbit inertia, an exploded transition, resize) and **parks itself** when the scene is at rest, offscreen, or the tab is hidden — minimal battery. A rolling FPS average steps DPR down below 50 fps and back up above 58 fps with hysteresis.
+- **Strict cleanup** — one `dispose()` releases `OrbitControls`, all geometries/materials, hotspot DOM, listeners and the renderer, on `pagehide`.
+- **Accessibility** — the canvas is `role="img"` with an `aria-label`; the toolbar and hotspots are native `<button>`s (keyboard-reachable, focus rings), and hotspot labels reveal on focus as well as hover; `prefers-reduced-motion` disables the idle spin and renders on interaction only.
+- **Premium look** — ACES Filmic tone mapping, hemisphere + directional key lighting, glowing translucent shell rings.
+
+Three.js r160 + `OrbitControls` are loaded as ES modules through an importmap on **jsDelivr only** (`three` + `three/addons/`).
 
 Explore more on the hub: **https://aetumi.app** · product viewers → https://aetumi.app/aesport
-
----
-
-## Example backlog / roadmap
-
-# Three.js Product Viewer Example Backlog
-
-## Planned examples
-
-### Minimal orbit viewer
-
-A small GLTF viewer with constrained orbit controls, responsive sizing, loading state and cleanup.
-
-### Product variant switcher
-
-Swap materials or product finishes without reloading the full scene. Keep UI state outside the Three.js render loop.
-
-### Hotspot annotations
-
-Project selected 3D positions into screen space and connect them to accessible HTML labels.
-
-### Exploded-view sequence
-
-Animate product parts between assembled and exploded states while preserving predictable camera framing.
-
-### Ecommerce analytics hooks
-
-Document interaction events such as `viewer_open`, `viewer_rotate`, `variant_change`, `hotspot_open` and `exploded_view` without coupling analytics logic to rendering.
-
-## Quality bar
-
-Every example should document:
-
-- asset size and loading behavior
-- mobile controls
-- cleanup strategy
-- reduced-motion fallback
-- semantic HTML boundary
-- performance considerations
-
-## AETumi links
-
-- https://aetumi.app/threejs/
-- https://aetumi.app/3d-components/
-- https://aetumi.app/interactive-websites/
