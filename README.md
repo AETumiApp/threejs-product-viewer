@@ -80,10 +80,9 @@ This separation makes the viewer easier to reuse and prevents SEO-critical conte
 
 ## Repository status
 
-Documentation-first. Small viewer examples will be added incrementally with an emphasis on inspectable behavior and production constraints.
+Active. Runnable, production-oriented examples now live in [`examples/`](./examples/) — reviewed for performance (adaptive quality), accessibility, reduced-motion and non-WebGL fallbacks, and clean resource disposal. The set is refined and extended as new patterns land.
 
 See [examples/README.md](./examples/README.md).
-
 ## About AETumi
 
 AETumi helps designers, developers and agencies build cinematic product experiences and interactive 3D websites with Three.js, WebGL, Next.js, React, React Three Fiber and AI coding workflows.
