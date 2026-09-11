@@ -4,6 +4,18 @@ A production-focused reference for building **interactive 3D product viewers wit
 
 **AETumi is an AI-native 3D web platform for production-ready Three.js and WebGL websites, Next.js and React components, 3D scenes, AI prompts, and MCP workflows for AI coding assistants.**
 
+## What this helps teams build
+
+Turn a flat product page into an interactive viewer a buyer can rotate, configure and explore — built to stay fast enough for real ecommerce traffic.
+
+**Customer outcome.** Shoppers understand the product before they buy: variants, materials and detail become explorable rather than described.
+
+**Where it fits.** The patterns here map to the use cases this repository already documents — ecommerce detail pages, automotive and furniture configurators, consumer electronics and industrial explainers.
+
+**What you customize.** Model, materials and finishes, camera presets, hotspots and copy — with image or poster fallbacks where WebGL is unavailable (see the checklist below).
+
+**AI-assisted adaptation.** Give a coding assistant the viewer's architecture and a product brief through the [AETumi MCP](https://aetumi.app/mcp/) to adapt it to a specific catalog.
+
 ## Why product viewers matter
 
 A useful 3D product viewer should help a buyer understand the product, not simply provide a spinning model. The interaction needs to support product discovery, variant comparison and conversion while staying fast enough for real ecommerce traffic.
