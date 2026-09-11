@@ -110,3 +110,14 @@ Production-ready 3D web you can own the source of — from [AETumi](https://aetu
 - [Three.js website templates & 3D components](https://aetumi.app/threejs/)
 
 Build 3D web directly from your AI assistant with the [AETumi MCP for AI coding](https://aetumi.app/mcp/) — `claude mcp add --transport http aetumi https://mcp.aetumi.app`
+
+## Live demos — AETumi Labs
+
+First-party, interactive references built on this technique — open, orbit and inspect:
+
+- [VAULT — immersive 3D product page (PDP)](https://aetumi.app/labs/ecommerce/)
+- [ELIXIR — transmission-glass beauty product viewer](https://aetumi.app/labs/cosmetics/)
+- [AURA — cinematic automotive configurator](https://aetumi.app/labs/automotive/)
+
+Browse all: [AETumi Labs](https://aetumi.app/labs/)
+
